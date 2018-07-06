@@ -1,0 +1,38 @@
+name = UoE Profile Overview
+description = Provides the Profile Overview content type for the University of Edinburgh
+core = 7.x
+package = University of Edinburgh
+
+dependencies[] = uoe_profile
+dependencies[] = uoe_text_format
+dependencies[] = uoe_metadata
+dependencies[] = features
+dependencies[] = field_group 
+dependencies[] = og_ui 
+dependencies[] = og_uoe 
+dependencies[] = safeword 
+
+features[ctools][] = field_group:field_group:1
+features[features_api][] = api:2
+features[field_group][] = group_content|node|uoe_profile_overview|form
+features[field_group][] = group_metadata|node|uoe_profile_overview|form
+features[field_group][] = group_references|node|uoe_profile_overview|form
+features[field_instance][] = node-uoe_profile_overview-field_meta_desc
+features[field_instance][] = node-uoe_profile_overview-field_meta_keywords
+features[field_instance][] = node-uoe_profile_overview-field_meta_noindex
+features[field_instance][] = node-uoe_profile_overview-field_slug
+features[field_instance][] = node-uoe_profile_overview-field_user_listing
+features[field_instance][] = node-uoe_profile_overview-og_group_ref
+features[og_features_permission][] = node:homepage:create uoe_profile_overview content
+features[og_features_permission][] = node:homepage:delete any uoe_profile_overview content
+features[og_features_permission][] = node:homepage:delete own uoe_profile_overview content
+features[og_features_permission][] = node:homepage:update any uoe_profile_overview content
+features[og_features_permission][] = node:homepage:update own uoe_profile_overview content
+
+; Information added by UoE Drupal Distribution site packaging script on 2016-08-25
+project status url = http://dist.drupal.is.ed.ac.uk/release-history
+version = "7.x-1.1"
+core = "7.x"
+project = "uoe_profile"
+datestamp = "1472145004"
+

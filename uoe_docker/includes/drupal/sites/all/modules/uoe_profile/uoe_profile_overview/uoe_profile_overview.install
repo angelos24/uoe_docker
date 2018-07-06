@@ -1,0 +1,194 @@
+<?php
+
+/**
+ * @file
+ * Installation of the uoe_profile_overview module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function uoe_profile_overview_install() {
+  module_load_include('inc', 'uoe_profile_overview', 'includes/uoe_profile_overview.field_base');
+  node_types_rebuild();
+  field_info_cache_clear();
+
+  _uoe_profile_overview_set_variables();
+  _uoe_profile_overview_base_fields();
+  _uoe_profile_overview_instance_fields();
+}
+
+/**
+ * Helper function to set up field instances.
+ *
+ * Note this is held as a feature, so reverting the feature is an alternative
+ * method to this function when updating the fields.
+ */
+function _uoe_profile_overview_instance_fields() {
+  module_load_include('inc', 'uoe_profile_overview', 'includes/uoe_profile_overview.features.field_instance');
+  $field_instances = uoe_profile_overview_field_default_field_instances();
+
+  // Create any fields that are missing.
+  foreach ($field_instances as $instance) {
+    if (!field_read_instance($instance['entity_type'], $instance['field_name'], $instance['bundle'])) {
+      field_create_instance($instance);
+    }
+    else {
+      // Ensure that any fields which are already instantiated are also updated.
+      field_update_instance($instance);
+    }
+  }
+}
+
+/**
+ * Helper function to set variables for the module.
+ */
+function _uoe_profile_overview_set_variables() {
+  // Node settings.
+  variable_set('autosave_uoe_profile_overview', 1);
+  variable_set('diff_enable_revisions_page_node_uoe_profile_overview', 1);
+  variable_set('diff_show_preview_changes_node_uoe_profile_overview', 1);
+  variable_set('diff_view_mode_preview_node_uoe_profile_overview', 'full');
+  variable_set('field_bundle_settings_node__uoe_profile_overview',
+    array(
+      'view_modes' => array(
+        'teaser' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview_high' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview_medium' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_node_atom_summary' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_node_atom_full' => array(
+          'custom_settings' => TRUE,
+        ),
+        'full' => array(
+          'custom_settings' => FALSE,
+        ),
+        'rss' => array(
+          'custom_settings' => FALSE,
+        ),
+        'diff_standard' => array(
+          'custom_settings' => FALSE,
+        ),
+        'token' => array(
+          'custom_settings' => FALSE,
+        ),
+      ),
+      'extra_fields' => array(
+        'form' => array(
+          'metatags' => array(
+            'weight' => '8',
+          ),
+          'title' => array(
+            'weight' => '0',
+          ),
+          'path' => array(
+            'weight' => '3',
+          ),
+        ),
+        'display' => array(),
+      ),
+    )
+  );
+
+  variable_set('menu_options_uoe_profile_overview', array('main-menu'));
+  variable_set('menu_parent_uoe_profile_overview', 'main-menu:0');
+  variable_set('metatag_enable_node__uoe_profile_overview', 1);
+  variable_set('node_options_uoe_profile_overview', array('revision', 'moderation'));
+  variable_set('node_preview_uoe_profile_overview', 0);
+  variable_set('node_submitted_uoe_profile_overview', 1);
+  variable_set('og_menu_link_restrict_uoe_profile_overview', 1);
+  variable_set('pathauto_node_uoe_profile_overview_pattern', '[node:menu-link:parent:url:path]/[node:field_slug]');
+  variable_set('uoe_menu_hide_uoe_profile_overview', 1);
+  variable_set('uoe_node_atom_allow_menu_uoe_profile_overview', 0);
+  variable_set('uoe_node_atom_enabled_uoe_profile_overview', 0);
+  variable_set('uoe_embargo_allow_uoe_profile_overview', 1);
+
+  variable_set('workbench_access_node_type_uoe_profile_overview', 0);
+  variable_set('workbench_moderation_default_state_uoe_profile_overview', 'draft');
+
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function uoe_profile_overview_uninstall() {
+  module_load_include('inc', 'uoe_profile_overview', 'includes/uoe_profile_overview.field_base');
+  $field_bases = _uoe_profile_overview_field_bases();
+
+  foreach ($field_bases as $key => $info) {
+    if (field_info_field($info['field_name'])) {
+      field_delete_field($info['field_name']);
+    }
+  }
+
+  field_attach_delete_bundle('node', 'uoe_profile_overview');
+
+  variable_del('autosave_uoe_profile_overview');
+  variable_del('diff_enable_revisions_page_node_uoe_profile_overview');
+  variable_del('diff_show_preview_changes_node_uoe_profile_overview');
+  variable_del('diff_view_mode_preview_node_uoe_profile_overview');
+  variable_del('field_bundle_settings_node__uoe_profile_overview');
+  variable_del('menu_options_uoe_profile_overview');
+  variable_del('menu_parent_uoe_profile_overview');
+  variable_del('metatag_enable_node__uoe_profile_overview');
+  variable_del('node_options_uoe_profile_overview');
+  variable_del('node_preview_uoe_profile_overview');
+  variable_del('node_submitted_uoe_profile_overview');
+  variable_del('og_menu_link_restrict_uoe_profile_overview');
+  variable_del('pathauto_node_uoe_profile_overview_pattern');
+  variable_del('uoe_menu_hide_uoe_profile_overview');
+  variable_del('uoe_embargo_allow_uoe_profile_overview');
+  variable_del('uoe_node_atom_allow_menu_uoe_profile_overview');
+  variable_del('uoe_node_atom_enabled_uoe_profile_overview');
+  variable_del('uoe_node_atom_help_uoe_profile_overview');
+  variable_del('workbench_access_node_type_uoe_profile_overview');
+  variable_del('workbench_moderation_default_state_uoe_profile_overview');
+
+}
+
+/**
+ * Implements hook_field_schema().
+ */
+function uoe_profile_overview_field_schema($field) {
+  $field_schema = array();
+
+  switch ($field['type']) {
+    case 'uoe_profile_overview':
+      $field_schema = array(
+        'columns' => array(
+          'value' => array(
+            'type' => 'text',
+            'size' => 'big',
+            'not null' => FALSE,
+          ),
+          'users' => array(
+            'type' => 'text',
+            'size' => 'big',
+            'not null' => FALSE,
+          ),
+          'format' => array(
+            'type' => 'varchar',
+            'length' => 255,
+            'not null' => FALSE,
+            'default' => 'uoe_text_format'
+          ),
+        ),
+        'indexes' => array(
+          'format' => array('format'),
+        ),
+      );
+      break;
+  }
+
+  return $field_schema;
+}

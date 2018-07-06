@@ -1,0 +1,96 @@
+<?php
+
+/**
+ * @file
+ * Core functionality for the Kaltura Application Framework.
+ */
+
+define('UOE_MEDIA_HOPPER_PARTNER_ID', '2010292');
+define('UOE_MEDIA_HOPPER_PLAYER_ID', '32599141');
+
+/**
+ * Implements hook_theme().
+ */
+function uoe_media_hopper_theme($existing, $type, $theme, $path) {
+  return array(
+    'uoe_media_hopper_player' => array(
+      'variables' => array('entry' => NULL, 'wid' => NULL),
+    ),
+    'uoe_media_hopper_link' => array(
+      'variables' => array('entry' => NULL, 'text' => NULL),
+    ),
+  );
+}
+
+/**
+ * Return a link to the media entry.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - entry: The Kaltura video entry id.
+ *   - text: The link text to use.
+ *
+ * @return string
+ */
+function theme_uoe_media_hopper_link($variables) {
+  if (empty($variables['entry'])) {
+    return '';
+  }
+
+  $text = empty($variables['text']) ? 'View on Media Hopper' : $variables['text'];
+  $url = 'https://media.ed.ac.uk/id/' . $variables['entry'];
+
+  return l($text, $url, array('external' => TRUE, 'attributes' => array('target' => '_blank')));
+}
+
+
+/**
+ * Return HTML to embed the Kaltura media player.  This is a script tag which
+ * will dynamically build a player appropriate for the client.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - entry: The Kaltura video entry id.
+ *   - wid: The wid setting needed to access protected resources.  Will default
+ *          to _{PARTNER_ID}
+ *
+ * @return string
+ */
+function theme_uoe_media_hopper_player($variables) {
+  global $is_https;
+
+  if (empty($variables['entry'])) {
+    return '';
+  }
+
+  // $entry_id should never have a single quote, but just in case...
+  $entry_id = check_plain(str_replace("'", "", $variables['entry']));
+  $wid = empty($variables['wid']) ? '_' . UOE_MEDIA_HOPPER_PARTNER_ID : $variables['wid'];
+
+  if ($is_https) {
+    $url = 'https://cdnapisec.kaltura.com';
+  }
+  else {
+    $url = 'http://cdnapi.kaltura.com';
+  }
+
+  $url .= '/p/' . UOE_MEDIA_HOPPER_PARTNER_ID .
+        '/sp/' . UOE_MEDIA_HOPPER_PARTNER_ID .
+        '00/embedIframeJs/uiconf_id/' . UOE_MEDIA_HOPPER_PLAYER_ID .
+        '/partner_id/' . UOE_MEDIA_HOPPER_PARTNER_ID;
+
+  // We include the loader separately from the embedding script to stop it being
+  // loaded twice.
+  drupal_add_js($url, array('type' => 'external', 'scope' => 'footer'));
+
+  $target_id = drupal_html_id('uoe-media-hopper');
+  $url .= "?incloader=false&autoembed=true&playerId=$target_id&entry_id=$entry_id&wid=$wid";
+  drupal_add_js($url, array('type' => 'external', 'scope' => 'footer'));
+
+  $html = <<<EOHTML
+    <div id="$target_id" class="embed-responsive embed-responsive-16by9">
+    </div>
+EOHTML;
+
+  return $html;
+}

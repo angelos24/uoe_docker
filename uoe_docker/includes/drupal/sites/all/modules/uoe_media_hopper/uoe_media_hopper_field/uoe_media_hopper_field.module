@@ -1,0 +1,297 @@
+<?php
+
+/**
+ * @file
+ * New field for the Kaltura Application Framework.
+ */
+
+
+/***************************************************************
+ * Field Type API hooks
+ ***************************************************************/
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function uoe_media_hopper_field_field_info() {
+  return array(
+    'uoe_media_hopper_field' => array(
+      'label' => t('UoE Media Hopper Video'),
+      'description' => t('Allows a video from the UoE Media Hopper to be embedded on the page.'),
+      'default_widget' => 'uoe_media_hopper_field_embed_markup',
+      'default_formatter' => 'uoe_media_hopper_field_embedded_video',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_validate().
+ *
+ * This hook gives us a chance to validate content that's in our field.
+ *
+ * @see uoe_media_hopper_field_widget_error()
+ */
+function uoe_media_hopper_field_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  foreach ($items as $delta => $item) {
+    if (!empty($item['entry'])) {
+      $len = drupal_strlen($item['entry']);
+      $fail = !preg_match('/[^a-z0-9_]/', $item['entry']);
+      $fail = $fail || ($len < 10) || ($len > 12);
+
+      $errors[$field['field_name']][$langcode][$delta][] = array(
+        'error' => 'uoe_media_hopper_entry_id',
+        'message' => t('%name: the value is not a valid Media Hopper entry id.', array('%name' => $instance['label'])),
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_field_is_empty().
+ *
+ * hook_field_is_empty() is where Drupal asks us if this field is empty.
+ * Return TRUE if it does not contain data, FALSE if it does. This lets
+ * the form API flag an error when required fields are empty.
+ */
+function uoe_media_hopper_field_field_is_empty($item, $field) {
+  return empty($item['entry']);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ *
+ * @see uoe_media_hopper_field_field_formatter_view()
+ */
+function uoe_media_hopper_field_field_formatter_info() {
+  return array(
+    'uoe_media_hopper_field_embedded_video' => array(
+      'label' => t('Render video player in page.'),
+      'field types' => array('uoe_media_hopper_field'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ *
+ * The formatter simply calls a separate function that renders the actual markup.
+ *
+ * @see uoe_media_hopper_field_field_formatter_info()
+ */
+function uoe_media_hopper_field_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+
+  switch ($display['type']) {
+    case 'uoe_media_hopper_field_embedded_video':
+      foreach ($items as $delta => $item) {
+        $element[$delta] = array(
+          '#markup' => theme('uoe_media_hopper_player', $item),
+        );
+      }
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_widget_info().
+ *
+ * A single widget is provided - link that loads the BSE KAF module in a modal window.
+ *
+ * @see kalturakaf_field_widget_form()
+ */
+function uoe_media_hopper_field_field_widget_info() {
+  return array(
+    'uoe_media_hopper_field_entry_id' => array(
+      'label' => t('Media Hopper Entry ID'),
+      'field types' => array('uoe_media_hopper_field'),
+    ),
+    'uoe_media_hopper_field_embed_markup' => array(
+      'label' => t('Media Hopper Embed Markup'),
+      'field types' => array('uoe_media_hopper_field'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function uoe_media_hopper_field_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $element['#delta'] = $delta;
+
+  $field_state = field_form_get_state($element['#field_parents'], $element['#field_name'], $langcode, $form_state);
+
+  $entry_value = isset($items[$delta]['entry']) ? $items[$delta]['entry'] : '';
+  $wid_value = isset($items[$delta]['wid']) ? $items[$delta]['wid'] : '';
+
+  $element['entry'] = array(
+    '#type' => 'value',
+    '#value' => $entry_value,
+  );
+  $element['wid'] = array(
+    '#type' => 'value',
+    '#value' => $wid_value,
+  );
+  $element['#type'] = 'fieldset';
+
+  switch ($instance['widget']['type']) {
+    case 'uoe_media_hopper_field_entry_id':
+      $element['entry'] = array(
+        '#type' => 'textfield',
+        '#default_value' => $entry_value,
+        '#maxlength' => 10,
+        '#size' => 15,
+        '#description' => t("Enter the media's Entry ID only."),
+      );
+      $element['wid'] = array(
+        '#type' => 'value',
+        '#value' => '_' . UOE_MEDIA_HOPPER_PARTNER_ID,
+      );
+
+      break;
+
+    case 'uoe_media_hopper_field_embed_markup':
+      if (empty($entry_value) || empty($wid_value) || empty($field_state['items_count'])) {
+        $element['embed'] = array(
+          '#type' => 'textarea',
+          '#default_value' => '',
+          '#description' => t("Paste the media's Embed code into here. The required values will be determined from that."),
+          '#element_validate' => array('uoe_media_hopper_field_embed_markup_validate'),
+        );
+      }
+      else {
+        // Set up the wrapper so that AJAX will be able to replace the element.
+        $wrapper_id = drupal_html_id('uoe-media-hopper-field-ajax-wrapper');
+        $element['#prefix'] = '<div id="' . $wrapper_id . '">';
+        $element['#suffix'] = '</div>';
+
+        $element['thumbnail'] = array(
+          '#type' => 'markup',
+          '#markup' => theme('uoe_media_hopper_link', $items[$delta]),
+        );
+        $element['remove_button'] = array(
+          '#type' => 'submit',
+          '#delta' => $delta,
+          '#value' => t('Remove'),
+          '#submit' => array('uoe_media_hopper_field_remove_button_submit'),
+          '#limit_validation_errors' => array(),
+          '#attributes' => array('class' => array('pull-right')),
+          '#ajax' => array(
+            'callback' => 'uoe_media_hopper_field_remove_button_callback',
+            'wrapper' => $wrapper_id,
+            'effect' => 'fade',
+          ),
+          '#weight' => 1000,
+        );
+        unset($element['remove_button']['#ajax']);
+      }
+
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Submit callback for the remove button on the
+ * uoe_media_hopper_field_embed_markup widget.
+ */
+function uoe_media_hopper_field_remove_button_submit($form, &$form_state) {
+  $button = $form_state['triggering_element'];
+  $delta = $button['#delta'];
+
+  // Get the field details.
+  $parent_array = array_slice($button['#array_parents'], 0, -1);
+  $element_values = drupal_array_get_nested_value($form, $parent_array);
+  $field_name = $element_values['#field_name'];
+  $langcode = $element_values['#language'];
+  $parents = $element_values['#field_parents'];
+
+  // Set the items count to 0 to trigger the form widget to display the text area.
+  $field_state = field_form_get_state($parents, $field_name, $langcode, $form_state);
+  $field_state['items_count'] = 0;
+  field_form_set_state($parents, $field_name, $langcode, $form_state, $field_state);
+
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit callback for the remove button on the
+ * uoe_media_hopper_field_embed_markup widget.
+ */
+function uoe_media_hopper_field_remove_button_callback($form, $form_state) {
+  $button = $form_state['triggering_element'];
+  $parents = array_slice($button['#parents'], 0, -1);
+  $element = drupal_array_get_nested_value($form, $parents);
+
+  return $element;
+}
+
+/**
+ * Element validation callback for the uoe_media_hopper_field_embed_markup widget.
+ */
+function uoe_media_hopper_field_embed_markup_validate($element, &$form_state, $form) {
+  $parents = array_slice($element['#parents'], 0, -1);
+  $wid_element = $entry_element = array('#parents' => $parents);
+  $wid_element['#parents'][] = 'wid';
+  $entry_element['#parents'][] = 'entry';
+
+  if (!empty($element['#value'])) {
+    $pattern = '#\bentry_id\=([0-9a-z_]+)\b.*\bwid\=([0-9a-z_]+)\b#';
+    if (preg_match($pattern, $element['#value'], $matches)) {
+      form_set_value($entry_element, $matches[1], $form_state);
+      form_set_value($wid_element, $matches[2], $form_state);
+    }
+    else {
+      form_error($element, t('The embed markup is invalid.'));
+    }
+  }
+  else {
+    form_set_value($entry_element, '', $form_state);
+    form_set_value($wid_element, '', $form_state);
+  }
+}
+
+/**
+ * Implements hook_field_widget_error().
+ *
+ * hook_field_widget_error() lets us figure out what to do with errors
+ * we might have generated in hook_field_validate(). Generally, we'll just
+ * call form_error().
+ *
+ * @see uoe_media_hopper_field_field_validate()
+ * @see form_error()
+ */
+function uoe_media_hopper_field_field_widget_error($element, $error, $form, &$form_state) {
+  switch ($error['error']) {
+    case 'uoe_media_hopper_invalid_entry_id':
+    case 'uoe_media_hopper_invalid_embed_markup':
+      form_error($element, $error['message']);
+      break;
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function uoe_media_hopper_field_theme($existing, $type, $theme, $path) {
+  return array(
+    'uoe_media_hopper_field_widget' => array(
+      'render element' => 'element',
+    ),
+  );
+}
+
+/**
+ * Returns HTML for a uoe_media_hopper_field widget.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - element: A render element representing the image field widget.
+ */
+function theme_uoe_media_hopper_field_widget($variables) {
+  $element = $variables['element'];
+}

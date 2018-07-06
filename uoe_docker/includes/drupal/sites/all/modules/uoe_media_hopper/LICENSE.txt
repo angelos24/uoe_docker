@@ -1,0 +1,4 @@
+Copyright (C) The University of Edinburgh.
+
+Unlike Drupal contributions released on the drupal.org site,
+this software is not for public release.

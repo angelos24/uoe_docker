@@ -1,0 +1,30 @@
+name = UoE Development Settings
+description = Enable access to developer modules. For local environment only, do not enable in a deployed environment.
+core = 7.x
+package = University of Edinburgh
+dependencies[] = admin_devel
+dependencies[] = admin_menu
+dependencies[] = admin_menu_toolbar
+dependencies[] = block
+dependencies[] = coder
+dependencies[] = coder_review
+dependencies[] = devel
+dependencies[] = devel_node_access
+dependencies[] = features
+dependencies[] = field_tools
+dependencies[] = fpa
+dependencies[] = module_filter
+dependencies[] = rules_admin
+dependencies[] = views_ui
+features[features_api][] = api:2
+features[user_permission][] = access devel information
+features[user_permission][] = switch users
+features[user_permission][] = view devel_node_access information
+
+; Information added by UoE Drupal Distribution site packaging script on 2016-07-13
+project status url = http://dist.drupal.is.ed.ac.uk/release-history
+version = "7.x-1.1+0-dev"
+core = "7.x"
+project = "uoe_devel"
+datestamp = "1468432803"
+

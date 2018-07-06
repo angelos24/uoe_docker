@@ -1,0 +1,253 @@
+<?php
+
+/**
+ * @file
+ * Installation of the uoe_profile module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function uoe_profile_install() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.field_base');
+  node_types_rebuild();
+
+  _uoe_profile_save_filter_formats();
+  _uoe_profile_set_variables();
+  _uoe_profile_base_fields();
+  _uoe_profile_instance_fields();
+
+  features_revert(array('uoe_profile' => array('field_group', 'field_instance', 'views_view', 'user_permission')));
+}
+
+/**
+ * Helper function to set up field instances.
+ *
+ * Note this is held as a feature, so reverting the feature is an alternative
+ * method to this function.
+ */
+function _uoe_profile_instance_fields() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.features.field_instance');
+  $field_instances = uoe_profile_field_default_field_instances();
+
+  // Create any fields that are missing.
+  foreach ($field_instances as $instance) {
+    if (!field_read_instance($instance['entity_type'], $instance['field_name'], $instance['bundle'])) {
+      field_create_instance($instance);
+    }
+    else {
+      // Ensure that any fields which are already instantiated are also updated.
+      field_update_instance($instance);
+    }
+  }
+}
+
+/**
+ * Helper function to set variables for the module.
+ */
+function _uoe_profile_set_variables() {
+  // Node settings.
+  variable_set('autosave_uoe_profile', 1);
+  variable_set('diff_enable_revisions_page_node_uoe_profile', 1);
+  variable_set('diff_show_preview_changes_node_uoe_profile', 0);
+  variable_set('diff_view_mode_preview_node_uoe_profile', 'full');
+  variable_set('field_bundle_settings_node__uoe_profile',
+    array(
+      'view_modes' => array(
+        'teaser' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview_high' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_overview_medium' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_node_atom_summary' => array(
+          'custom_settings' => TRUE,
+        ),
+        'uoe_node_atom_full' => array(
+          'custom_settings' => TRUE,
+        ),
+        'full' => array(
+          'custom_settings' => FALSE,
+        ),
+        'rss' => array(
+          'custom_settings' => FALSE,
+        ),
+        'diff_standard' => array(
+          'custom_settings' => FALSE,
+        ),
+        'token' => array(
+          'custom_settings' => FALSE,
+        ),
+      ),
+      'extra_fields' => array(
+        'form' => array(
+          'metatags' => array(
+            'weight' => '8',
+          ),
+          'title' => array(
+            'weight' => '0',
+          ),
+          'path' => array(
+            'weight' => '3',
+          ),
+        ),
+        'display' => array(),
+      ),
+    )
+  );
+
+  variable_set('menu_options_uoe_profile', array());
+  variable_set('menu_parent_uoe_profile', '');
+  variable_set('node_options_uoe_profile', array('revision', 'moderation'));
+  variable_set('node_preview_uoe_profile', 0);
+  variable_set('node_submitted_uoe_profile', 1);
+  variable_set('metatag_enable_node__uoe_profile', 1);
+  variable_set('og_menu_link_restrict_uoe_profile', 0);
+  variable_set('pathauto_node_uoe_profile_pattern', 'profile/[node:field_slug]');
+  variable_set('uoe_menu_hide_uoe_profile', 0);
+  variable_set('uoe_node_atom_allow_menu_uoe_profile', 0);
+  variable_set('uoe_node_atom_enabled_uoe_profile', 0);
+  variable_set('uoe_embargo_allow_uoe_profile', 1);
+
+  variable_set('workbench_access_node_type_uoe_profile', 0);
+  variable_set('workbench_moderation_default_state_uoe_profile', 'draft');
+
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function uoe_profile_uninstall() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.field_base');
+  $field_bases = _uoe_profile_field_bases();
+
+  foreach ($field_bases as $key => $info) {
+    if (field_info_field($info['field_name'])) {
+      field_delete_field($info['field_name']);
+    }
+  }
+
+  field_attach_delete_bundle('node', 'uoe_profile');
+
+  variable_del('autosave_uoe_profile');
+  variable_del('diff_enable_revisions_page_node_uoe_profile');
+  variable_del('diff_show_preview_changes_node_uoe_profile');
+  variable_del('diff_view_mode_preview_node_uoe_profile');
+  variable_del('field_bundle_settings_node__uoe_profile');
+  variable_del('menu_options_uoe_profile');
+  variable_del('menu_parent_uoe_profile');
+  variable_del('node_options_uoe_profile');
+  variable_del('node_preview_uoe_profile');
+  variable_del('node_submitted_uoe_profile');
+  variable_del('metatag_enable_node__uoe_profile');
+  variable_del('og_menu_link_restrict_uoe_profile');
+  variable_del('pathauto_node_uoe_profile_pattern');
+  variable_del('uoe_menu_hide_uoe_profile');
+  variable_del('uoe_embargo_allow_uoe_profile');
+  variable_del('uoe_node_atom_allow_menu_uoe_profile');
+  variable_del('uoe_node_atom_enabled_uoe_profile');
+  variable_del('uoe_node_atom_help_uoe_profile');
+  variable_del('workbench_access_node_type_uoe_profile');
+  variable_del('workbench_moderation_default_state_uoe_profile');
+
+}
+
+/**
+ * Helper function to reset the module's filter formats.
+ */
+function _uoe_profile_save_filter_formats() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.filter');
+  $defaults = uoe_profile_filter_formats();
+
+  foreach ($defaults as $format) {
+    $format = (object) $format;
+    filter_format_save($format);
+  }
+}
+
+/**
+ * Implements hook_schema().
+ */
+function uoe_profile_schema() {
+  $schema['uoe_profile_access'] = array(
+    'description' => 'Permissions table for which users have been granted access to edit which uoe_profile nodes.',
+    'fields' => array(
+      'nid' => array(
+        'description' => 'The node id for the uoe_profile page',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'The user id granted editing rights for the uoe_profile page',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('nid', 'uid'),
+    'indexes' => array(
+      'node' => array('nid'),
+      'user' => array('uid'),
+    ),
+  );
+  return $schema;
+}
+
+/**
+ * Change the maximum length of the Pure ID field.
+ */
+function uoe_profile_update_7101() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.field_base');
+  _uoe_profile_reset_base_field_length('field_uoe_pure_id');
+}
+
+/**
+ * Add field_uoe_pure_highlighted and field_uoe_pure_limit fields.
+ */
+function uoe_profile_update_7102() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.field_base');
+  _uoe_profile_base_fields();
+
+  features_revert(array('uoe_profile' => array('field_group', 'field_instance')));
+}
+
+/**
+ * Add metadata fields to uoe_profile content type.
+ */
+function uoe_profile_update_7103() {
+  module_load_include('inc', 'uoe_profile', 'includes/uoe_profile.field_base');
+
+  _uoe_profile_set_variables();
+  _uoe_profile_base_fields();
+  features_revert(array('uoe_profile' => array('field_instance')));
+}
+
+/**
+ * Use new URL Segment field in pathauto pattern.
+ */
+function uoe_profile_update_7104() {
+  _uoe_profile_set_variables();
+}
+
+/**
+ * New text format for user biographies.
+ */
+function uoe_profile_update_7105() {
+  _uoe_profile_save_filter_formats();
+  features_revert(array('uoe_profile' => array('user_permission')));
+}
+
+/**
+ * Update help text and remove view changes button on profile pages.
+ */
+function uoe_profile_update_7106() {
+  _uoe_profile_instance_fields();
+  _uoe_profile_set_variables();
+}

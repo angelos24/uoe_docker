@@ -1,0 +1,360 @@
+<?php
+
+/**
+ * @file
+ * UoE Profile Overview provides a content type for use as a listing of user profiles.
+ */
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function uoe_profile_overview_ctools_plugin_directory($owner, $plugin_type) {
+  return 'includes';
+}
+
+/**
+ * Implements hook_ctools_plugin_api().
+ */
+function uoe_profile_overview_ctools_plugin_api($module = NULL, $api = NULL) {
+  if ($module == 'field_group' && $api == 'field_group') {
+    return array('version' => '1');
+  }
+}
+
+/**
+ * Implements hook_node_info().
+ */
+function uoe_profile_overview_node_info() {
+  $items = array(
+    'uoe_profile_overview' => array(
+      'name' => t('Profile Overview'),
+      'base' => 'uoe_profile_overview',
+      'description' => t('Provides listings of user profile pages.'),
+      'has_title' => 'TRUE',
+      'title_label' => t('Title'),
+      'help' => '',
+      'locked' => TRUE,
+    ),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function uoe_profile_overview_theme($existing, $type, $theme, $path) {
+  return array(
+    'uoe_profile_overview' => array(
+      'variables' => array('data' => array()),
+      'template' => 'uoe-profile-overview',
+      'path' => drupal_get_path('module', 'uoe_profile_overview') . '/templates',
+    ),
+  );
+}
+
+/**
+ * Theming of the uoe_profile_overview content.
+ */
+function template_preprocess_uoe_profile_overview(&$variables) {
+  $data = $variables['data'];
+  $lists = array();
+  $count = 0;
+
+  foreach ($data as $datum) {
+    $list = new stdClass;
+    $list->text = $datum['sanitized_text'];
+    $list->rows = array();
+    $list->error = '';
+    $list->sort = $datum['sort'];
+    $list->sorted = $datum['sorted'];
+
+    $count += count($datum['nids']);
+    if ($count > 200) {
+      $list->error = t('Too many profiles on one page.');
+      $lists[] = $list;
+      break;
+    }
+
+    $nodes = node_load_multiple($datum['nids']);
+    foreach ($nodes as $node) {
+      $wrapper = entity_metadata_wrapper('node', $node);
+
+      $name = l($node->title, 'node/' . $node->nid);
+      if ($mail = check_plain($wrapper->field_uoe_contact_email->value())) {
+        $mail = l($mail, "mailto:$mail", array('absolute' => TRUE));
+      }
+      $phone = check_plain($wrapper->field_uoe_contact_work_phone->value());
+      $role = check_plain($wrapper->field_uoe_contact_role->value());
+
+      $list->rows[] = array(
+        'name' => $name,
+        'email' => $mail,
+        'phone' => $phone,
+        'role' => $role,
+      );
+    }
+
+    $lists[] = $list;
+  }
+
+  $variables['lists'] = $lists;
+  $variables['list_count'] = count($lists);
+}
+
+/**
+ * Implements hook_form().
+ */
+function uoe_profile_overview_form($node, &$form_state) {
+  return node_content_form($node, $form_state);
+}
+
+/**
+ * Implements hook_field_info().
+ */
+function uoe_profile_overview_field_info() {
+  return array(
+    'uoe_profile_overview' => array(
+      'label' => t('User Listing'),
+      'description' => t("UoE Profile Listing"),
+      'settings' => array(
+        'text_processing' => TRUE,
+      ),
+      'instance_settings' => array(
+        'text_processing' => TRUE,
+      ),
+      'default_widget' => 'uoe_profile_overview',
+      'default_formatter' => 'uoe_profile_overview',
+      'no_ui' => TRUE,
+      // Support hook_entity_property_info() from contrib "Entity API".
+      'property_type' => 'uoe_profile_overview',
+      'property_callbacks' => array('uoe_profile_overview_field_property_info_callback'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function uoe_profile_overview_field_widget_info() {
+  return array(
+    'uoe_profile_overview' => array(
+      'label' => t('UoE Profile Listing'),
+      'field types' => array('uoe_profile_overview'),
+    ),
+  );
+}
+
+
+/**
+ * Additional callback to adapt the property info of uoe_profile_overview fields.
+ *
+ * @see entity_metadata_field_entity_property_info()
+ */
+function uoe_profile_overview_field_property_info_callback(&$info, $entity_type, $field, $instance, $field_type) {
+  $property = &$info[$entity_type]['bundles'][$instance['bundle']]['properties'][$field['field_name']];
+  // Define a data structure so it's possible to deal with both the link title
+  // and URL.
+  $property['getter callback'] = 'entity_metadata_field_verbatim_get';
+  $property['setter callback'] = 'entity_metadata_field_verbatim_set';
+
+  // Auto-create the field item as soon as a property is set.
+  $property['auto creation'] = "uoe_profile_overview_{$field_type['property_type']}_field_item_create";
+
+  $property['property info'] = array();
+  switch ($field_type['property_type']) {
+    case 'uoe_profile_overview':
+      $property['property info']['value'] = array(
+      'type' => 'text',
+      'label' => t('Page content'),
+      'setter callback' => 'entity_property_verbatim_set',
+      );
+      $property['property info']['users'] = array(
+        'type' => 'text',
+        'label' => t('Users whose profiles are to be listed'),
+        'setter callback' => 'entity_property_verbatim_set',
+      );
+      break;
+  }
+
+  unset($property['query callback']);
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function uoe_profile_overview_field_is_empty($item, $field) {
+  switch ($field['type']) {
+    case 'uoe_profile_overview':
+      // Strip out whitespace elements and markup to determine if empty.
+      $users = trim($item['users']);
+
+      return empty($users) && uoe_profile_overview_markup_is_empty($item['value']);
+      break;
+  }
+}
+
+/**
+ * Helper function to see if rich text is effectively empty.
+ *
+ * @param $value
+ *   The HTML markup to test.
+ *
+ * @return
+ *   Boolean TRUE if markup is just whitespace.
+ */
+function uoe_profile_overview_markup_is_empty($value) {
+  // Strip out whitespace elements and markup to determine if empty.
+  $value = filter_xss($value, array());
+  $value = str_replace('&nbsp;', '', $value);
+  $value = trim($value);
+
+  return empty($value);
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function uoe_profile_overview_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $element['#delta'] = $delta;
+  $value = isset($items[$delta]['value']) ? $items[$delta]['value'] : '';
+
+  switch ($instance['widget']['type']) {
+    case 'uoe_profile_overview':
+      $element += array(
+        '#type' => 'text_format',
+        '#format' => isset($items[$delta]['format']) ? $items[$delta]['format'] : 'uoe_text_format',
+        '#base_type' => 'textarea',
+        '#default_value' => isset($items[$delta]['value']) ? $items[$delta]['value'] : NULL,
+        '#rows' => 5,
+      );
+      $element['users'] = array(
+        '#type' => 'textarea',
+        '#title' => t('Usernames'),
+        '#default_value' => isset($items[$delta]['users']) ? $items[$delta]['users'] : NULL,
+        '#rows' => 5,
+        '#weight' => 2,
+        '#description' => t('List the usernames of people to be listed one per line.')
+      );
+      $element['#attached']['library'] = array(array('dnd', 'library'));
+
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function uoe_profile_overview_field_formatter_info() {
+  return array(
+    'uoe_profile_overview_formatter' => array(
+      'label' => t('UoE profiles overview'),
+      'field types' => array('uoe_profile_overview'),
+      'settings'  => array(),
+    ),
+  );
+}
+
+/**
+ * Helper function to get sort order from query string.
+ */
+function uoe_profile_overview_get_sort($list) {
+  return (isset($_GET[$list]) && $_GET[$list] == 'desc') ? 'desc' : 'asc';
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function uoe_profile_overview_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  $url = entity_uri($entity_type, $entity);
+  $path = $url['path'];
+  $params = drupal_get_query_parameters();
+
+  switch ($display['type']) {
+    case 'uoe_profile_overview_formatter':
+      $data = array();
+      $i = 0;
+
+      foreach ($items as $item) {
+        $value = _text_sanitize($instance, $langcode, $item, 'value');
+        if (uoe_profile_overview_markup_is_empty($value)) {
+          // If this is the first entry, don't allow the value to be falsey so
+          // we always get a table heading on the first user list.
+          $value = $i ? '' : ' ';
+        }
+
+        if ($value) {
+          $i++;
+          $sort_id = 'sort-' . $instance['id'] . '-' . $i;
+          $sort_order = uoe_profile_overview_get_sort($sort_id);
+          $new_sort = $params;
+          $new_sort[$sort_id] = ($sort_order == 'asc') ? 'desc' : 'asc';
+
+          $data[$i] = array(
+            'sanitized_text' => $value,
+            'sort_id' => $sort_id,
+            'sorted' => $sort_order,
+            'sort' => url($path, array('query' => $new_sort)),
+            'nids' => array(),
+          );
+        }
+        else {
+          // Disable sorting on joined tables.
+          $data[$i]['sort'] = '';
+        }
+
+        uoe_profile_overview_get_nids($item['users'], $data[$i]['nids'], $sort_order);
+      }
+
+      $element = array(
+        '#theme' => 'uoe_profile_overview',
+        '#data' => $data,
+      );
+  }
+
+  return $element;
+}
+
+/**
+ * Get list of node ids from the list of users.
+ *
+ * @param $user_list
+ *   Text list of usernames as supplied by user.
+ * @param &$nids
+ *   The array of node ids to populate with results of profile lookups.
+ */
+function uoe_profile_overview_get_nids($user_list, &$nids, $sort = 'ASC') {
+  $usernames = uoe_profile_parse_list($user_list);
+
+  if (!$usernames) {
+    return;
+  }
+
+  $uids = db_select('users', 'u')
+    ->fields('u', array('uid'))
+    ->condition('u.name', $usernames, 'IN')
+    ->execute()
+    ->fetchCol();
+
+  if (!$uids) {
+    return;
+  }
+
+  $query = new EntityFieldQuery();
+  $nodes = $query
+    ->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', 'uoe_profile')
+    ->propertyCondition('status', NODE_PUBLISHED)
+    ->fieldCondition('field_uoe_profile_user', 'target_id', $uids, 'IN')
+    ->fieldOrderBy('field_uoe_contact_family_name', 'value', $sort)
+    ->fieldOrderBy('field_uoe_contact_given_name', 'value', $sort)
+    ->propertyOrderBy('nid', 'value', 'DESC')
+    ->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT')
+    ->execute();
+
+  if ($nodes) {
+    $nids = array_merge($nids, array_keys($nodes['node']));
+  }
+}

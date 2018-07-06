@@ -1,0 +1,26 @@
+<?php
+
+/**
+ * @file
+ * Installation of the uoe_media_hopper_field module.
+ */
+
+/**
+ * Implements hook_field_schema()
+ */
+function uoe_media_hopper_field_field_schema($field) {
+  $columns = array(
+    'entry' => array(
+      'type' => 'varchar',
+      'length' => 20,
+      'not null' => FALSE,
+    ),
+    'wid' => array(
+      'type' => 'varchar',
+      'length' => 20,
+      'not null' => FALSE,
+    ),
+  );
+
+  return array('columns' => $columns);
+}

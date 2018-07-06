@@ -1,0 +1,12 @@
+name = UoE Media Hopper
+description = Core functionality to integrate with the Kaltura Application Framework.
+core = 7.x
+package = The University of Edinburgh
+
+; Information added by UoE Drupal Distribution site packaging script on 2016-06-08
+project status url = http://dist.drupal.is.ed.ac.uk/release-history
+version = "7.x-1.0+0-dev"
+core = "7.x"
+project = "uoe_media_hopper"
+datestamp = "1465399803"
+

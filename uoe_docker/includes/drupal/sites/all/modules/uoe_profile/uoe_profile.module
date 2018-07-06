@@ -1,0 +1,1109 @@
+<?php
+
+/**
+ * @file
+ * UoE Profile provides a content type for use as a user profile.
+ */
+
+/**
+ * Implements hook_views_api().
+ */
+function uoe_profile_views_api($module = NULL, $api = NULL) {
+  return array(
+    'api' => '3.0',
+    'path' => drupal_get_path('module', 'uoe_profile') . '/includes',
+  );
+}
+
+/**
+ * Implements hook_ctools_plugin_api().
+ */
+function uoe_profile_ctools_plugin_api($module = NULL, $api = NULL) {
+  if ($module == 'field_group' && $api == 'field_group') {
+    return array('version' => '1');
+  }
+  if ($module == "jw_player" && $api == "jw_player_presets") {
+    return array("version" => "1");
+  }
+}
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function uoe_profile_ctools_plugin_directory($owner, $plugin_type) {
+  return 'includes';
+}
+
+/**
+ * Implements hook_node_info().
+ */
+function uoe_profile_node_info() {
+  $items = array(
+    'uoe_profile' => array(
+      'name' => t('Profile'),
+      'base' => 'uoe_profile',
+      'description' => t('A user profile page.'),
+      'has_title' => 'TRUE',
+      'title_label' => t('Title'),
+      'help' => '',
+      'locked' => TRUE,
+    ),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_user_view_alter().
+ */
+function uoe_profile_user_view_alter(&$build) {
+  global $user;
+
+  $account = $build['#account'];
+  $access = $account->uid == $user->uid || user_access('uoe manage profiles');
+
+  if ($nid = uoe_profile_get_node_id($account)) {
+    $link = t('View profile page');
+    $url = "node/$nid";
+  }
+  elseif ($access) {
+    $link = t('Create profile page');
+    $url = 'node/add/uoe-profile/' . $account->uid;
+  }
+  else {
+    // There is no profile page and we don't have access to create one, so there
+    // is no link to display.
+    return;
+  }
+
+  $icon = '<span class="glyphicon glyphicon-info-sign"></span> ';
+  $link = l($icon . $link, $url, array('html' => TRUE));
+  $build['uoe_profile'] = array(
+    '#markup' => '<ul class="cta inverted"><li>' . $link . '</li></ul>',
+    '#weight' => 100,
+  );
+}
+
+
+/**
+ * Implements hook_image_default_styles().
+ */
+function uoe_profile_image_default_styles() {
+  $styles = array();
+
+  $styles['uoe_profile_picture'] = array(
+    'label' => 'Profile picture',
+    'name' => 'uoe_profile_picture',
+    'effects' => array(
+      1 => array(
+        'label' => 'Scale and crop',
+        'help' => 'Scale and crop will maintain the aspect-ratio of the original image, then crop the larger dimension. This is most useful for creating perfectly square thumbnails without stretching the image.',
+        'effect callback' => 'image_scale_and_crop_effect',
+        'dimensions callback' => 'image_resize_dimensions',
+        'form callback' => 'image_resize_form',
+        'summary theme' => 'image_resize_summary',
+        'module' => 'image',
+        'name' => 'image_scale_and_crop',
+        'data' => array(
+          'width' => 100,
+          'height' => 130,
+        ),
+        'weight' => 1,
+      ),
+    ),
+  );
+
+  return $styles;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function uoe_profile_theme($existing, $type, $theme, $path) {
+  return array(
+    'node__uoe_profile' => array(
+      'render element' => 'content',
+      'base hook' => 'node',
+      'template' => 'node--uoe_profile',
+      'path' => drupal_get_path('module', 'uoe_profile') . '/templates',
+    ),
+    'field__field_website_link' => array(
+      'render element' => 'element',
+      'base hook' => 'field',
+      'function' => 'theme_field__field_website_link',
+    ),
+    'field__field_affiliation_link' => array(
+      'render element' => 'element',
+      'base hook' => 'field',
+      'function' => 'theme_field__field_affiliation_link',
+    ),
+    'field__field_uoe_video_link' => array(
+      'render element' => 'element',
+      'base hook' => 'field',
+      'function' => 'theme_field__field_uoe_video_link',
+    ),
+    'views_exposed_form__uoe_profiles__page' => array(
+      'render element' => 'form',
+      'base hook' => 'views_exposed_form',
+      'template' => 'views-exposed-form--uoe-profiles--page',
+      'path' => drupal_get_path('module', 'uoe_profile') . '/templates',
+    ),
+    'uoe_pure_publications' => array(
+      'variables' => array('data' => array(), 'all_count' => 0),
+      'template' => 'uoe-pure-publications',
+      'path' => drupal_get_path('module', 'uoe_profile') . '/templates',
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function uoe_profile_form_uoe_profile_node_form_alter(&$form, &$form_state, $form_id) {
+  global $user;
+  $account = $user;
+
+  if (empty($form['field_uoe_profile_user'])) {
+    return;
+  }
+
+  $node = $form['#node'];
+  if (!empty($node->is_new) || empty($node->nid)) {
+    // Only those with the 'uoe manage profiles' permission can create profile
+    // pages for others.
+    if (user_access('uoe manage profiles')) {
+      // If we have the UID  specified in the URL, use that to populate the
+      // user reference (if valid).
+      if (is_numeric(arg(3)) && ($target = user_load(arg(3)))) {
+        $account = $target;
+      }
+      else {
+        // Don't set a default value.
+        $account = NULL;
+      }
+    }
+
+    // If we are creating a profile for a specified user.
+    if (!empty($account)) {
+      // If there is already a profile for the user, redirect to that page.
+      if (uoe_profile_has_profile($account)) {
+        drupal_goto('node/' . uoe_profile_get_node_id($account));
+      }
+      else {
+        // Set the default value and disable the form element.
+        $lang = $form['field_uoe_profile_user']['#language'];
+        $form['field_uoe_profile_user'][$lang][0]['target_id']['#value'] = format_username($account) . ' (' . $account->uid . ')';
+        $form['field_uoe_profile_user']['#disabled'] = TRUE;
+      }
+    }
+
+  }
+  else {
+    // If this is being edited rather than created, don't allow the user to be
+    // changed.
+    $form['field_uoe_profile_user']['#disabled'] = TRUE;
+  }
+
+  // Update help text.
+  $form['title']['#description'] = t('The title of the page as it will appear on the website. For example, "Professor John Smith".');
+
+  $lang = $form['field_uoe_video']['#language'];
+  $form['field_uoe_video'][$lang][0]['embed']['#description'] = 'Paste the media\'s Embed Code into here. For help on gathering this code, please refer to our <a href="https://www.wiki.ed.ac.uk/x/EoRuEg">support wiki</a>.';
+}
+
+/**
+ * Implements hook_help().
+ */
+function uoe_profile_help($path, $arg) {
+  $output = '';
+
+  $add_help = in_array($path, array('node/add/uoe-profile', 'site/add/uoe-profile'));
+
+  if ($path == 'node/%/edit') {
+    if ($node = node_load($arg[1])) {
+      $add_help = ($node->type == 'uoe_profile');
+    }
+  }
+
+  if ($add_help) {
+    $output = t('For help completing this page, please refer to our <a href="!url">support wiki</a>.', array('!url' => 'https://www.wiki.ed.ac.uk/x/EoRuEg'));
+  }
+
+  return $output;
+}
+
+/**
+ * Implements hook_node_validate().
+ */
+function uoe_profile_node_validate($node, $form, &$form_state) {
+  if ($node->type == 'uoe_profile') {
+    // Check there isn't another node using this target id.
+    $wrapper = entity_metadata_wrapper('node', $node);
+    try {
+      $uid = $wrapper->field_uoe_profile_user->uid->value();
+    }
+    catch (EntityMetadataWrapperException $e) {
+      form_set_error('field_uoe_profile_user', 'Invalid user selection.');
+      return;
+    }
+
+    $nid = 0;
+    if (empty($node->is_new) && !empty($node->nid)) {
+      $nid = $node->nid;
+    }
+
+    $query = new EntityFieldQuery;
+    $count = $query
+      ->entityCondition('entity_type', 'node', '=')
+      ->propertyCondition('type', 'uoe_profile', '=')
+      ->propertyCondition('nid', $nid, '!=')
+      ->fieldCondition('field_uoe_profile_user', 'target_id', $uid)
+      ->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT')
+      ->count()
+      ->execute();
+
+    if ($count) {
+      form_set_error('field_uoe_profile_user', t('A profile for the specified user has already been created.'));
+    }
+
+    $pure_id = $wrapper->field_uoe_pure_id->value();
+    if (!empty($pure_id)) {
+      module_load_include('inc', 'uoe_profile', 'uoe_profile.pure');
+      if (!uoe_profile_validate_pure_id($wrapper->field_uoe_pure_id->value())) {
+        form_set_error('field_uoe_pure_id', 'Invalid PURE User ID supplied.');
+      }
+    }
+
+    // Check to see if the slug is already in use.
+    $slug = $wrapper->field_slug->machine->value();
+    $query = new EntityFieldQuery;
+    $count = $query
+      ->entityCondition('entity_type', 'node', '=')
+      ->propertyCondition('type', 'uoe_profile', '=')
+      ->propertyCondition('nid', $nid, '!=')
+      ->fieldCondition('field_slug', 'machine', $slug)
+      ->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT')
+      ->count()
+      ->execute();
+
+    if ($count) {
+      form_set_error('field_slug', t('That URL segment is already in use.  Please select another.'));
+    }
+
+  }
+}
+
+/**
+ * Implements hook_node_submit().
+ */
+function uoe_profile_node_submit($node, $form, $form_state) {
+  if ($node->type == 'uoe_profile') {
+    module_load_include('inc', 'uoe_profile', 'uoe_profile.pure');
+
+    $reset = FALSE;
+    if (!empty($node->nid)) {
+      $original = entity_load_unchanged('node', $node->nid);
+      $w_original = entity_metadata_wrapper('node', $original);
+      $w_node = entity_metadata_wrapper('node', $node);
+
+      if ($w_original->field_uoe_pure_id->value() != $w_node->field_uoe_pure_id->value()) {
+        $reset = TRUE;
+      }
+    }
+
+    uoe_profile_pure_node_update($node, $reset, FALSE);
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function uoe_profile_permission() {
+   return array(
+    'uoe manage profiles' => array(
+      'title' => t("Manage users' profiles"),
+      'description' => t("Can create and edit other users' profile pages"),
+    ),
+  );
+}
+
+/**
+ * Helper function to return the profile node id for a given user.
+ */
+function uoe_profile_get_node_id($account) {
+  $user_profiles = &drupal_static(__FUNCTION__, array());
+  $uid = is_object($account) ? $account->uid : $account;
+
+  if (!isset($user_profiles[$uid])) {
+    $query = new EntityFieldQuery();
+    $nodes = $query
+      ->entityCondition('entity_type', 'node', '=')
+      ->propertyCondition('type', 'uoe_profile', '=')
+      ->fieldCondition('field_uoe_profile_user', 'target_id', $uid)
+      ->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT')
+      ->execute();
+
+    if ($nodes) {
+      $nids = array_keys($nodes['node']);
+      // There should only be one per person...
+      $user_profiles[$uid] = reset($nids);
+    }
+    else {
+      $user_profiles[$uid] = FALSE;
+    }
+  }
+
+  return $user_profiles[$uid];
+}
+
+/**
+ * Helper function to determine if a user has a
+ */
+function uoe_profile_has_profile($account) {
+  return (bool) uoe_profile_get_node_id($account);
+}
+
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function uoe_profile_preprocess_node(&$variables) {
+  $node = $variables['node'];
+  if ($node->type != 'uoe_profile') {
+    return;
+  }
+
+  $fields = array(
+    'uoe_contact_given_name',
+    'uoe_contact_middle_name',
+    'uoe_contact_family_name',
+    'uoe_contact_prefix',
+    'uoe_contact_role',
+    'uoe_contact_awards',
+    'uoe_contact_org_1',
+    'uoe_contact_fax',
+    'uoe_contact_org_2',
+    'uoe_contact_org_3',
+    'uoe_contact_work_phone',
+    'uoe_contact_email',
+    'uoe_contact_address',
+    'uoe_contact_locality',
+    'uoe_contact_postcode',
+    'uoe_contact_times',
+    'uoe_contact_point',
+    'uoe_contact_address_2',
+    'uoe_contact_locality_2',
+    'uoe_contact_postcode_2',
+    'uoe_biography',
+    'uoe_cv',
+    'uoe_qualifications',
+    'uoe_affiliations',
+    'uoe_interests',
+    'website_link',
+    'uoe_current_interests',
+    'uoe_past_interests',
+    'uoe_knowledge',
+    'uoe_project_activity',
+    'affiliation_link',
+    'uoe_pure',
+    'uoe_ug_teaching',
+    'uoe_pg_teaching',
+    'uoe_phd_enquiries',
+    'uoe_supervision',
+    'uoe_current_supervised',
+    'uoe_supervised_past',
+    'uoe_group_heading_1',
+    'uoe_group_content_1',
+    'uoe_group_heading_2',
+    'uoe_group_content_2',
+    'uoe_video',
+    'uoe_video_link',
+    'uoe_public_media',
+    'uoe_current_grants',
+    'uoe_previous_grants',
+    'uoe_profile_picture',
+  );
+
+  foreach ($fields as $field) {
+    $fieldname = "field_$field";
+    $variables[$field] = trim(drupal_render($variables['content'][$fieldname]));
+  }
+
+  $element = &$variables['content']['field_uoe_contact_point'];
+  foreach (array('PHN', 'MOB', 'WEB', 'SOC') as $contact_type) {
+    $field = "uoe_contact_point_$contact_type";
+    $output = '';
+    if (!empty($element[$contact_type])) {
+      $output = drupal_render($element[$contact_type]);
+    }
+    $variables[$field] = $output;
+  }
+
+  $variables['node_url'] = $GLOBALS['base_url'] . $variables['node_url'];
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function template_preprocess_uoe_pure_publications(&$variables) {
+  if (empty($variables['data']) || !is_array($variables['data'])) {
+    $data = array();
+  }
+  else {
+    $data = $variables['data'];
+  }
+
+  $months = explode(' ', ' Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec');
+  $datum = array();
+
+  $pubs = array();
+  foreach ($data as $datum) {
+    $pub = new stdClass();
+
+    // Publication title.
+    if (empty($datum['pubtitle'])) {
+      continue;
+    }
+    $pub->title = filter_xss($datum['pubtitle'], array());
+
+    $pub->pages = '';
+    if (!empty($datum['totalpages']) && is_numeric($datum['totalpages'])) {
+      $pub->pages = '(' . format_plural($datum['totalpages'], '1 page', '@count pages') . ')';
+    }
+
+    // Date published:
+    $pub->published = $pub->published_display = '';
+
+    if (!empty($datum['year']) && is_numeric($datum['year'])) {
+      $pub->published = $datum['year'];
+      $pub->published_display = $datum['year'];
+
+      if (!empty($datum['month']) && is_numeric($datum['month'])) {
+        $pub->published .= '-' . substr('0' . (int)$datum['month'], 0, 2);
+        $pub->published_display = t($months[(int)$datum['month']]) . ' ' . $pub->published_display;
+
+        if (!empty($datum['day']) && is_numeric($datum['day'])) {
+          $pub->published .= '-' . substr('0' . (int)$datum['day'], 0, 2);
+          $pub->published_display = (int)$datum['day'] . ' ' . $pub->published_display;
+        }
+      }
+    }
+
+    // Journal details.
+    $pub->journal = '';
+
+    if (!empty($datum['journalname'])) {
+      $pub->journal = filter_xss($datum['journalname'], array());
+      if (!empty($datum['journalvol'])) {
+        $pub->journal .= ', ' . t('vol.') . ' ' . check_plain($datum['journalvol']);
+      }
+      if (!empty($datum['journalissue'])) {
+        $pub->journal .= ', ' . t('no.') . ' ' . check_plain($datum['journalissue']);
+      }
+      if (!empty($datum['pagesfromto'])) {
+        $pub->journal .= ', ' . t('pp.') . ' ' . check_plain($datum['pagesfromto']);
+      }
+    }
+
+    // Author name (as held in PURE).
+    $pub->author = '';
+
+    if (!empty($datum['lastname'])) {
+      $pub->author = check_plain($datum['lastname']);
+      if (!empty($datum['firstname'])) {
+        $pub->author .= check_plain(', ' . substr(trim($datum['firstname']), 0, 1) . '.');
+      }
+    }
+
+    // Publication URL
+    $pub->url = '';
+
+    if (!empty($datum['url'])) {
+      $pub->url = check_url($datum['url']);
+    }
+
+    $pub->doi = '';
+
+    if (!empty($datum['doi'])) {
+      $pub->doi = check_url($datum['doi']);
+    }
+
+    $pubs[] = $pub;
+  }
+
+  $variables['publications'] = $pubs;
+  $variables['all_publications'] = '';
+  $variables['publication_count'] = '';
+
+  // We only include a link to all publications if there is more than one
+  // available, to keep the wording of the link sensible.
+  if (!empty($variables['all_count']) && is_numeric($variables['all_count'])) {
+    $variables['publication_count'] = $variables['all_count'];
+    if (!empty($datum['authpuburl'])) {
+      $variables['all_publications'] = check_url($datum['authpuburl']);
+    }
+  }
+}
+
+
+/**
+ * Implements hook_node_access().
+ */
+function uoe_profile_node_access($node, $op, $account) {
+  $node_type = is_object($node) ? $node->type : $node;
+  if ($node_type != 'uoe_profile') {
+    return;
+  }
+
+  // Extend create and update (but not delete) rights to users with the
+  // 'uoe manage profiles' permission.
+  if (user_access('uoe manage profiles', $account) && $op != 'delete') {
+    return NODE_ACCESS_ALLOW;
+  }
+
+  $access = NODE_ACCESS_IGNORE;
+
+  switch ($op) {
+    case 'create':
+      if (uoe_profile_has_profile($account)) {
+        $access = NODE_ACCESS_DENY;
+      }
+      break;
+
+    case 'update':
+      $access = NODE_ACCESS_DENY;
+      if (uoe_profile_is_editor($node, $account)) {
+        $access = NODE_ACCESS_ALLOW;
+      }
+      if (is_object($node) && $node->nid == uoe_profile_get_node_id($account)) {
+        $access = NODE_ACCESS_ALLOW;
+      }
+      break;
+  }
+
+  return $access;
+}
+
+/**
+ * Custom theming of the website_link field to output as an unordered list.
+ */
+function theme_field__field_website_link($variables) {
+  $output = '';
+  $list = '';
+
+  // Render the label, if it's not hidden.
+  if (!$variables['label_hidden']) {
+    $output .= '<div class="field-label"' . $variables['title_attributes'] . '>' . $variables['label'] . ':&nbsp;</div>';
+  }
+
+  // Render the items.
+  foreach ($variables['items'] as $delta => $item) {
+    $list .= '<li>' . drupal_render($item) . '</li>';
+  }
+  $output .= ($list ? "<ul>$list</ul>" : '');
+
+  return $output;
+}
+
+/**
+ * Custom theming of the affiliation_link field to output as an unordered list.
+ */
+function theme_field__field_affiliation_link($variables) {
+  $output = '';
+  $list = '';
+
+  // Render the label, if it's not hidden.
+  if (!$variables['label_hidden']) {
+    $output .= '<div class="field-label"' . $variables['title_attributes'] . '>' . $variables['label'] . ':&nbsp;</div>';
+  }
+
+  // Render the items.
+  foreach ($variables['items'] as $delta => $item) {
+    $list .= '<li>' . drupal_render($item) . '</li>';
+  }
+  $output .= ($list ? "<ul>$list</ul>" : '');
+
+  return $output;
+}
+
+/**
+ * Custom theming of the uoe_video_link field to output as an unordered list.
+ */
+function theme_field__field_uoe_video_link($variables) {
+  $output = '';
+  $list = '';
+
+  // Render the label, if it's not hidden.
+  if (!$variables['label_hidden']) {
+    $output .= '<div class="field-label"' . $variables['title_attributes'] . '>' . $variables['label'] . ':&nbsp;</div>';
+  }
+
+  // Render the items.
+  foreach ($variables['items'] as $delta => $item) {
+    $list .= '<li>' . drupal_render($item) . '</li>';
+  }
+  $output .= ($list ? "<ul>$list</ul>" : '');
+
+  return $output;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function uoe_profile_form_views_exposed_form_alter(&$form, &$form_state, $form_id) {
+  if ($form['#id'] == 'views-exposed-form-uoe-profiles-page') {
+    $form['nm']['#attributes']['placeholder'] = array(t('Search by name...'));
+    $form['bu']['#attributes']['placeholder'] = array(t('Search by business unit...'));
+    $form['submit']['#value'] = t('Search');
+  }
+}
+
+/**
+ * Helper function to determine if a given user has been explicitly granted edit
+ * rights to the uoe_profile node.
+ *
+ * @param $node
+ *   A node entity object or the nid for the uoe_profile node.
+ *
+ * @param $account
+ *   The user object whose access you are checking.  Defaults to the current
+ *   user.
+ *
+ * @return
+ *   TRUE or FALSE indicating their access permission.
+ */
+function uoe_profile_is_editor($node, $account = NULL) {
+  global $user;
+
+  $uid = empty($account) ? $user->uid : $account->uid;
+  $nid = is_object($node) ? $node->nid : $node;
+
+  if (empty($nid) || empty($uid)) {
+    return FALSE;
+  }
+
+  $exists = db_select('uoe_profile_access', 'pa')
+    ->fields('pa', array('nid'))
+    ->condition('pa.uid', $uid)
+    ->condition('pa.nid', $nid)
+    ->execute()
+    ->fetchField();
+
+  return (bool) $exists;
+}
+
+/**
+ * Get current editors of a profile page.  This can be a paginated list since it
+ * returns fully loaded user entities for display.
+ *
+ * @param $node
+ *   A node entity object or the nid for the uoe_profile node.
+ * @param $limit
+ *   If supplied, extend the query with PagerDefault and apply the limit provided.
+ * @param $header
+ *   If supplied, extend the query with TableSort and apply the header provided.
+ *
+ * @return
+ *   An array of user objects returned by user_load_multiple.
+ */
+function uoe_profile_get_editors($node, $limit = NULL, $header = NULL) {
+  $nid = is_object($node) ? $node->nid : $node;
+
+  $query = db_select('uoe_profile_access', 'pa');
+  if (!empty($limit)) {
+    $query = $query->extend('PagerDefault');
+  }
+  if (!empty($header)) {
+    $query = $query->extend('TableSort');
+  }
+
+  $query->join('users', 'u', 'u.uid = pa.uid');
+  $query->fields('pa', array('uid'))
+    ->condition('pa.nid', $nid);
+
+  if (empty($limit)) {
+    $query->limit(20);
+  }
+  else {
+    $query->limit($limit);
+  }
+
+  if (empty($header)) {
+    $query->orderBy('u.name', 'ASC')->orderBy('u.uid', 'ASC');
+  }
+  else {
+    $query->orderByHeader($header);
+  }
+
+  $uids = $query->execute()->fetchCol();
+
+  return user_load_multiple($uids);
+}
+
+/**
+ * Get the profile pages the supplied account is an editor for.  This can be a
+ * paginated list since it returns fully loaded nodes for display.
+ *
+ * @param $account
+ *   The user object for the user whose access you are checking.
+ * @param $limit
+ *   If supplied, extend the query with PagerDefault and apply the limit provided.
+ * @param $header
+ *   If supplied, extend the query with TableSort and apply the header provided.
+ *
+ * @return
+ *   An array of nodes as returned by node_load_multiple
+ */
+function uoe_profile_get_profiles($account, $limit = NULL, $header = NULL) {
+  // Get a paginated list of nodes.  We don't add the tag to honour node_access
+  // since the user is always granted editing rights by this module irrespective
+  // of view rights.
+  $query = db_select('uoe_profile_access', 'pa');
+
+  if (!empty($limit)) {
+    $query = $query->extend('PagerDefault');
+  }
+  if (!empty($header)) {
+    $query = $query->extend('TableSort');
+  }
+
+  $query->join('node', 'n', 'n.nid = pa.nid');
+  $query->fields('pa', array('nid'))
+    ->condition('pa.uid', $account->uid);
+
+  if (empty($limit)) {
+    $query->limit(20);
+  }
+  else {
+    $query->limit($limit);
+  }
+
+  if (empty($header)) {
+    $query->orderBy('n.title', 'ASC')->orderBy('n.nid', 'ASC');
+  }
+  else {
+    $query->orderByHeader($header);
+  }
+
+  $nids = $query->execute()->fetchCol();
+
+  return node_load_multiple($nids);
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function uoe_profile_menu() {
+  $items = array();
+
+  $items['node/%node/editors'] = array(
+    'title' => 'Editors',
+    'description' => 'Users granted permission to edit this profile page.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('uoe_profile_editor_listing_form', 1),
+    'access callback' => '_uoe_profile_editor_listing_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'uoe_profile.pages.inc',
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+
+  $items['user/%user/profiles'] = array(
+    'title' => "Others' profiles",
+    'description' => 'Profiles this user has permissions to edit.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('uoe_profile_profile_listing_form', 1),
+    'access callback' => '_uoe_profile_profile_listing_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'uoe_profile.pages.inc',
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+
+  return $items;
+}
+
+/**
+ * Menu access callback.
+ *
+ * @see uoe_profile_menu().
+ */
+function _uoe_profile_profile_listing_access($account) {
+  global $user;
+
+  // The user can see their own listing page.
+  if ($account->uid == $user->uid) {
+    return TRUE;
+  }
+
+  // If the current user has the 'uoe manage profiles' permission, they have access.
+  if (user_access('uoe manage profiles')) {
+    return TRUE;
+  }
+}
+
+/**
+ * Menu access callback.
+ *
+ * @see uoe_profile_menu().
+ */
+function _uoe_profile_editor_listing_access($node) {
+  // This only applies to uoe_profile nodes.
+  if ($node->type != 'uoe_profile') {
+    return FALSE;
+  }
+
+  // If the current user has the 'uoe manage profiles' permission, they have access.
+  if (user_access('uoe manage profiles')) {
+    return TRUE;
+  }
+
+  // If the user has editing rights for this page, they have access.
+  if (node_access('update', $node)) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Make the user an editor of a profile page.
+ *
+ * @param $account
+ *   The user object for the editor.
+ * @param $profile_nid
+ *   The nid for the profile node the user needs to be an editor of.
+ */
+function uoe_profile_make_editor($account, $profile_nid) {
+  if (!uoe_profile_is_editor($profile_nid, $account)) {
+    db_insert('uoe_profile_access')
+      ->fields(array('nid' => $profile_nid, 'uid' => $account->uid))
+      ->execute();
+  }
+}
+
+/**
+ * Implements hook_user_delete().
+ */
+function uoe_profile_user_delete($account) {
+  // If this user has a profile page, delete it.
+  if ($nid = uoe_profile_get_node_id($account)) {
+    node_delete($nid);
+  }
+
+  // Remove entries for the user in the uoe_profile_access table.
+  db_delete('uoe_profile_access')
+    ->condition('uid', $account->uid)
+    ->execute();
+}
+
+/**
+ * Implements hook_delete().
+ */
+function uoe_profile_delete($node) {
+  // Remove entries for the node in the uoe_profile_access table.
+  db_delete('uoe_profile_access')
+    ->condition('nid', $node->nid)
+    ->execute();
+}
+
+/**
+ * Implements hook_form().
+ */
+function uoe_profile_form($node, &$form_state) {
+  return node_content_form($node, $form_state);
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function uoe_profile_field_widget_info() {
+  return array(
+    'uoe_profile_pure_date' => array(
+      'label' => t('Read-only date'),
+      'field types' => array('datestamp'),
+    ),
+    'uoe_profile_pure_content' => array(
+      'label' => t('Read-only PURE publications markup'),
+      'field types' => array('text_long'),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function uoe_profile_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $element['#delta'] = $delta;
+  $value = isset($items[$delta]['value']) ? $items[$delta]['value'] : '';
+
+  switch ($instance['widget']['type']) {
+    case 'uoe_profile_pure_date':
+      $text = t('Save changes to update from PURE.');
+      if (!empty($value)) {
+        $text = t('Last updated from PURE: %date', array('%date' => format_date($value)));
+      }
+      $element['#type'] = 'markup';
+      $element['#markup'] = '<div class="description">' . $text . '</div>';
+      break;
+
+    case 'uoe_profile_pure_content':
+      $element['#type'] = 'markup';
+      $element['#markup'] = uoe_profile_filter_publication_markup($value);
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Helper function to filter markup in the list of publications.
+ *
+ * @param $markup
+ *   The markup for the list of publications.
+ *
+ * @return
+ *   Sanitized markup.
+ */
+function uoe_profile_filter_publication_markup($markup) {
+  $allowed_tags = explode(' ', 'a ul li cite span time strong p br abbr');
+
+  return filter_xss($markup, $allowed_tags);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function uoe_profile_field_formatter_info() {
+  return array(
+    'uoe_profile_pure_formatter' => array(
+      'label' => t('PURE list of publications'),
+      'field types' => array('text_long'),
+      'settings'  => array(),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function uoe_profile_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+
+  switch ($display['type']) {
+    case 'uoe_profile_pure_formatter':
+      foreach ($items as $delta => $item) {
+        $element[$delta] = array(
+          '#markup' => uoe_profile_filter_publication_markup($item['value']),
+        );
+      }
+  }
+
+  return $element;
+}
+
+/**
+ * Implements hook_cron_queue_info().
+ */
+function uoe_profile_cron_queue_info() {
+  $queues['uoe_profile_pure_refresh'] = array(
+    'worker callback' => 'uoe_profile_pure_refresh',
+    'time' => 30,
+  );
+
+  return $queues;
+}
+
+/**
+ * Implements hook_cron().
+ */
+function uoe_profile_cron() {
+  // Add items to our queue to refresh PURE content.
+  $queue = DrupalQueue::get('uoe_profile_pure_refresh');
+
+  module_load_include('inc', 'uoe_profile', 'uoe_profile.pure');
+  $expiry = _uoe_profile_expiry_datestamp();
+
+  // Don't add any more items if there is already something to process.  In that
+  // way newly created profiles can take priority.
+  if ($queue->numberOfItems() <= 22) {
+    $query = new EntityFieldQuery();
+    $result = $query
+      ->entityCondition('entity_type', 'node')
+      ->entityCondition('bundle', 'uoe_profile')
+      ->fieldCondition('field_uoe_pure_id', 'value', '', '<>')
+      ->fieldCondition('field_uoe_pure_updated', 'value', $expiry, '<')
+      ->propertyOrderBy('nid')
+      ->fieldOrderBy('field_uoe_pure_updated', 'value')
+      ->range(0, 10)
+      ->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT')
+      ->execute();
+
+    if (isset($result['node'])) {
+      foreach (array_keys($result['node']) as $nid) {
+        $queue->createItem($nid);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_cron_alter().
+ */
+function uoe_profile_cron_alter(&$items) {
+  if (!empty($items['uoe_profile_cron'])) {
+    $items['uoe_profile_cron']['scheduler']['crontab']['rules'][0] = '* * * * *';
+    $items['uoe_profile_cron']['scheduler']['simple']['rules'][0] = '* * * * *';
+  }
+}
+
+/**
+ * Cron queue worker callback.
+ */
+function uoe_profile_pure_refresh($nid) {
+  if ($node = node_load($nid)) {
+    module_load_include('inc', 'uoe_profile', 'uoe_profile.pure');
+    uoe_profile_pure_node_update($node);
+  }
+}
+
+/**
+ * Helper function to extract a list of items entered by the user in a textarea.
+ *
+ * Individual items can be searated by whitespace, comma or semi-colon.
+ * Duplicate items are removed.
+ *
+ * @param $text
+ *   The list supplied by the user.
+ *
+ * @return
+ *   An array of text items extracted from the user input.
+ */
+function uoe_profile_parse_list($text) {
+  $items = preg_split('/[\s,;]/', $text, -1, PREG_SPLIT_NO_EMPTY);
+  // Make sure we have unique values, since we may be adding multiple entities
+  // in the same request (ie database transaction) which would scupper database
+  // checks for unique values.
+  return array_keys(array_count_values($items));
+}
+
+/**
+ * Implements hook_menu_breadcrumb_alter().
+ */
+function uoe_profile_menu_breadcrumb_alter(&$active_trail, $item) {
+  // Insert a parent breadcrumb to the list of all profiles for uoe_profile
+  // content.
+  if ($item['map'][0] == 'node') {
+    if (!empty($item['map'][1]) && is_object($item['map'][1]) && $item['map'][1]->type == 'uoe_profile') {
+      $insert = array(
+        array(
+          'title' => t('Profile pages'),
+          'href' => 'profile',
+          'localized_options' => array(),
+        ),
+      );
+      array_splice($active_trail, 1, 0, $insert);
+    }
+  }
+}
